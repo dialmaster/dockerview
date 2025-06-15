@@ -289,6 +289,7 @@ class LogPane(Vertical):
         self.log_thread = None
         self.log_queue = queue.Queue()
         self.stop_event = threading.Event()
+        self.log_session_id = 0  # Track log sessions to prevent mixing old/new logs
 
         # UI components
         self.header = None
@@ -572,14 +573,20 @@ class LogPane(Vertical):
 
         item_type, item_id = self.current_item
 
+        # Increment session ID to distinguish this log stream from previous ones
+        self.log_session_id += 1
+        current_session_id = self.log_session_id
+
         # Add a loading message
         self.log_display.text = f"Loading logs for {item_type}: {item_id}...\n"
         self.waiting_for_logs = True
         self.initial_log_check_done = False
 
-        # Start the log worker thread
+        # Start the log worker thread with session ID
         self.stop_event.clear()
-        self.log_thread = threading.Thread(target=self._log_worker, daemon=True)
+        self.log_thread = threading.Thread(
+            target=self._log_worker, args=(current_session_id,), daemon=True
+        )
         self.log_thread.start()
 
     def _stop_logs(self):
@@ -599,29 +606,40 @@ class LogPane(Vertical):
             except queue.Empty:
                 break
 
-    def _log_worker(self):
-        """Worker thread that reads Docker logs and puts them in the queue."""
+    def _log_worker(self, session_id):
+        """Worker thread that reads Docker logs and puts them in the queue.
+
+        Args:
+            session_id: The session ID for this log stream
+        """
         item_type, item_id = self.current_item if self.current_item else (None, None)
 
         if not self.docker_client:
-            self.log_queue.put(("error", "Docker client not available"))
+            self.log_queue.put((session_id, "error", "Docker client not available"))
             return
 
         try:
             if item_type == "container":
                 # Stream logs for a single container
-                self._stream_container_logs(item_id)
+                self._stream_container_logs(item_id, session_id)
             elif item_type == "stack":
                 # Stream logs for all containers in a stack
-                self._stream_stack_logs()
+                self._stream_stack_logs(session_id)
             else:
-                self.log_queue.put(("error", f"Unknown item type: {item_type}"))
+                self.log_queue.put(
+                    (session_id, "error", f"Unknown item type: {item_type}")
+                )
         except Exception as e:
             logger.error(f"Error in log worker: {e}", exc_info=True)
-            self.log_queue.put(("error", f"Error streaming logs: {str(e)}"))
+            self.log_queue.put((session_id, "error", f"Error streaming logs: {str(e)}"))
 
-    def _stream_container_logs(self, container_id):
-        """Stream logs for a single container using Docker SDK."""
+    def _stream_container_logs(self, container_id, session_id):
+        """Stream logs for a single container using Docker SDK.
+
+        Args:
+            container_id: The container ID
+            session_id: The session ID for this log stream
+        """
         try:
             container = self.docker_client.containers.get(container_id)
 
@@ -664,19 +682,25 @@ class LogPane(Vertical):
                 if line:
                     has_any_logs = True
                     line_count += 1
-                    self.log_queue.put(("log", line))
+                    self.log_queue.put((session_id, "log", line))
 
             # Cancel timer if still running
             check_timer.cancel()
 
         except docker.errors.NotFound:
-            self.log_queue.put(("error", f"Container {container_id} not found"))
+            self.log_queue.put(
+                (session_id, "error", f"Container {container_id} not found")
+            )
         except Exception as e:
             logger.error(f"Error streaming container logs: {e}", exc_info=True)
             raise
 
-    def _stream_stack_logs(self):
-        """Stream logs for all containers in a stack using Docker SDK."""
+    def _stream_stack_logs(self, session_id):
+        """Stream logs for all containers in a stack using Docker SDK.
+
+        Args:
+            session_id: The session ID for this log stream
+        """
         try:
             stack_name = self.current_item_data.get("name", self.current_item[1])
 
@@ -685,9 +709,18 @@ class LogPane(Vertical):
                 all=True, filters={"label": f"com.docker.compose.project={stack_name}"}
             )
 
+            # Remove any duplicate containers (shouldn't happen, but just in case)
+            seen_ids = set()
+            unique_containers = []
+            for container in containers:
+                if container.id not in seen_ids:
+                    seen_ids.add(container.id)
+                    unique_containers.append(container)
+            containers = unique_containers
+
             if not containers:
                 self.log_queue.put(
-                    ("error", f"No containers found for stack {stack_name}")
+                    (session_id, "error", f"No containers found for stack {stack_name}")
                 )
                 return
 
@@ -719,6 +752,7 @@ class LogPane(Vertical):
             if not log_streams:
                 self.log_queue.put(
                     (
+                        session_id,
                         "error",
                         f"Could not stream logs for any containers in stack {stack_name}",
                     )
@@ -774,7 +808,7 @@ class LogPane(Vertical):
                     # Use timeout to periodically check stop_event
                     line = combined_queue.get(timeout=0.1)
                     has_any_logs = True
-                    self.log_queue.put(("log", line))
+                    self.log_queue.put((session_id, "log", line))
                 except:
                     # Check if all threads have finished
                     if all(not t.is_alive() for t in threads):
@@ -797,14 +831,28 @@ class LogPane(Vertical):
                     break
 
                 try:
-                    msg_type, content = self.log_queue.get_nowait()
+                    queue_item = self.log_queue.get_nowait()
+
+                    # Handle both old format (msg_type, content) and new format (session_id, msg_type, content)
+                    if len(queue_item) == 2:
+                        # Old format - shouldn't happen but handle gracefully
+                        msg_type, content = queue_item
+                        session_id = 0
+                    else:
+                        # New format with session ID
+                        session_id, msg_type, content = queue_item
+
+                    # Skip if this is from an old session
+                    if session_id != 0 and session_id != self.log_session_id:
+                        continue
+
                     processed += 1
 
                     if msg_type == "log":
                         # Store all log lines
                         self.all_log_lines.append(content)
 
-                        # Apply search filter if set
+                        # Apply search filter if set (empty string means no filter)
                         if (
                             not self.search_filter
                             or self.search_filter.lower() in content.lower()
@@ -887,7 +935,8 @@ class LogPane(Vertical):
         """Check if no logs were found and show an informative message."""
         if self.waiting_for_logs and not self.initial_log_check_done:
             # No logs received yet
-            self.log_queue.put(("no_logs", ""))
+            # Note: We don't have session_id here, but it's okay for no_logs message
+            self.log_queue.put((0, "no_logs", ""))
 
     def _convert_since_to_timestamp(self, since_str):
         """Convert a time string like '5m' or '1h' to a Unix timestamp.
@@ -955,7 +1004,9 @@ class LogPane(Vertical):
     def on_input_changed(self, event):
         """Handle search input changes."""
         if event.input.id == "search-input":
-            self.search_filter = event.value
+            self.search_filter = (
+                event.value.strip()
+            )  # Strip whitespace to treat empty strings as no filter
             # Re-filter existing logs when search filter changes
             self._refilter_logs()
 

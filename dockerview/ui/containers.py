@@ -522,10 +522,10 @@ class ContainerList(VerticalScroll):
 
         if self.networks_section_header is None:
             self.networks_section_header = SectionHeader("🌐 DOCKER NETWORKS")
-            
+
         if self.stacks_container is None:
             self.stacks_container = Container(classes="stacks-group")
-            
+
         if self.networks_container is None:
             self.networks_container = Container(classes="networks-group")
 
@@ -709,7 +709,7 @@ class ContainerList(VerticalScroll):
                             if isinstance(widget, NetworkHeader):
                                 existing_network_containers[widget.network_name] = child
                                 break
-                                
+
             if not self._pending_clear and self.stacks_container:
                 for child in self.stacks_container.children:
                     if (
@@ -839,12 +839,12 @@ class ContainerList(VerticalScroll):
                 stacks_container_exists = self.stacks_container in self.children
 
                 # Mount stacks section if needed
-                if (new_stack_containers or self.stack_headers):
+                if new_stack_containers or self.stack_headers:
                     if not stacks_header_exists:
                         self.mount(self.stacks_section_header)
                     if not stacks_container_exists:
                         self.mount(self.stacks_container)
-                        
+
                     # Add new stack containers
                     for stack_name, (
                         stack_container,
@@ -857,12 +857,12 @@ class ContainerList(VerticalScroll):
                         table.styles.display = "block" if header.expanded else "none"
 
                 # Mount networks section if needed
-                if (new_network_containers or self.network_headers):
+                if new_network_containers or self.network_headers:
                     if not networks_header_exists:
                         self.mount(self.networks_section_header)
                     if not networks_container_exists:
                         self.mount(self.networks_container)
-                        
+
                     # Add new network containers
                     for network_name, (
                         network_container,
@@ -959,7 +959,9 @@ class ContainerList(VerticalScroll):
             )
         elif focused in self.network_headers.values():
             self.current_focus = next(
-                name for name, header in self.network_headers.items() if header == focused
+                name
+                for name, header in self.network_headers.items()
+                if header == focused
             )
         elif focused in self.network_tables.values():
             self.current_focus = next(
@@ -1007,13 +1009,13 @@ class ContainerList(VerticalScroll):
             # Create and mount the container immediately unless we're in a batch update
             if not self._is_updating:
                 self._ensure_section_headers()
-                
+
                 # Ensure networks section exists
                 if self.networks_section_header not in self.children:
                     self.mount(self.networks_section_header)
                 if self.networks_container not in self.children:
                     self.mount(self.networks_container)
-                    
+
                 network_container = Container(classes="network-container")
                 self.networks_container.mount(network_container)
                 network_container.mount(header)
@@ -1116,13 +1118,13 @@ class ContainerList(VerticalScroll):
             # Create and mount the container immediately unless we're in a batch update
             if not self._is_updating:
                 self._ensure_section_headers()
-                
+
                 # Ensure stacks section exists
                 if self.stacks_section_header not in self.children:
                     self.mount(self.stacks_section_header)
                 if self.stacks_container not in self.children:
                     self.mount(self.stacks_container)
-                    
+
                 stack_container = Container(classes="stack-container")
                 self.stacks_container.mount(stack_container)
                 stack_container.mount(header)
