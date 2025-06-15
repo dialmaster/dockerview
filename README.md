@@ -73,12 +73,12 @@ log:
   # Higher values use more memory but allow viewing more history
   # Default: 4000
   max_lines: 4000
-  
+
   # Number of log lines to initially fetch when viewing a container/stack
   # Lower values load faster but show less history
   # Default: 400
   tail: 400
-  
+
   # Time range of logs to fetch (e.g., '15m', '1h', '24h')
   # Only logs from this time period will be shown initially
   # This significantly improves performance for long-running containers
@@ -238,4 +238,93 @@ Docker Engine <-> Docker SDK <-> DockerManager <-> UI Components
 
 ## Development
 
-For contributing to dockerview, see the technical details above.
+### Setting Up Development Environment
+
+```bash
+# Clone the repository
+git clone https://github.com/dialmaster/dockerview.git
+cd dockerview
+
+# Install dependencies
+make install
+# or
+poetry install
+
+# Install pre-commit hooks (recommended)
+poetry run pre-commit install
+```
+
+### Code Quality and Testing
+
+dockerview uses automated tools to maintain code quality:
+
+- **Black**: Code formatting
+- **isort**: Import sorting
+- **pytest**: Unit testing
+- **pre-commit**: Git hooks for automatic checks
+
+#### Using Make Commands
+
+The project includes a Makefile for common development tasks:
+
+```bash
+make help       # Show all available commands
+make format     # Auto-format code with black and isort
+make lint       # Check code formatting without changes
+make test       # Run unit tests
+make check      # Run all checks (lint + test)
+make all        # Format code and run tests
+make clean      # Remove cache files
+```
+
+#### Manual Commands
+
+If you prefer running commands directly:
+
+```bash
+# Format code
+poetry run black dockerview/
+poetry run isort dockerview/
+
+# Check formatting
+poetry run black --check dockerview/
+poetry run isort --check-only dockerview/
+
+# Run tests
+poetry run pytest
+poetry run pytest -v  # Verbose output
+
+# Run pre-commit on all files
+poetry run pre-commit run --all-files
+```
+
+### CI/CD
+
+GitHub Actions automatically runs on all pull requests and pushes to main:
+
+- Tests on Python 3.8 (minimum supported version)
+- Code formatting checks (black and isort)
+- Unit test execution
+
+All checks must pass before merging pull requests.
+
+### Contributing Guidelines
+
+1. **Before committing**: Run `make check` to ensure code passes all checks
+2. **Code style**: Code is automatically formatted with black (line length 88)
+3. **Imports**: Organized with isort using the black profile
+4. **Pre-commit hooks**: Automatically run formatting and checks on commit
+5. **Testing**: Add tests for new features and ensure existing tests pass
+
+### Project Structure
+
+- `dockerview/`: Main package directory
+  - `app.py`: Main application and UI layout
+  - `docker_mgmt/`: Docker integration layer
+  - `ui/`: UI components (containers list, log pane, etc.)
+  - `config.py`: Configuration management
+- `tests/`: Unit tests
+- `pyproject.toml`: Poetry configuration and tool settings
+- `Makefile`: Development task automation
+- `.pre-commit-config.yaml`: Pre-commit hook configuration
+- `.github/workflows/`: CI/CD configuration

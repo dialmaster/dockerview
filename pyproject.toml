@@ -17,6 +17,7 @@ pyyaml = "^6.0.1"
 pytest = "^8.0.0"
 black = "^24.1.1"
 isort = "^5.13.2"
+poethepoet = "^0.24.4"
 
 [build-system]
 requires = ["poetry-core"]
@@ -24,3 +25,30 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.scripts]
 dockerview = "dockerview.app:main"
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311', 'py312']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+addopts = "-v --tb=short"
+
+[tool.poe.tasks]
+format = [
+    {cmd = "black dockerview/"},
+    {cmd = "isort dockerview/"}
+]
+lint = [
+    {cmd = "black --check dockerview/"},
+    {cmd = "isort --check-only dockerview/"}
+]
+test = "pytest -v"
+check = ["lint", "test"]
+all = ["format", "test"]

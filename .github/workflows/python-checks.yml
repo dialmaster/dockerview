@@ -1,0 +1,58 @@
+name: Python Checks
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.8'
+
+    - name: Install Poetry
+      run: |
+        pip install poetry==1.8.3
+
+    - name: Configure Poetry
+      run: |
+        poetry config virtualenvs.create true
+        poetry config virtualenvs.in-project true
+
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-root
+
+    - name: Install project
+      run: poetry install --no-interaction
+
+    - name: Run Black formatter check
+      run: |
+        poetry run black --check dockerview/
+
+    - name: Run isort import checker
+      run: |
+        poetry run isort --check-only dockerview/
+
+    - name: Run pytest
+      run: |
+        poetry run pytest -v
+
+    - name: Check for Python syntax errors or undefined names
+      run: |
+        poetry run python -m py_compile dockerview/**/*.py
