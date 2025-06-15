@@ -254,7 +254,14 @@ class StackHeader(Static):
             super().__init__()
 
     def __init__(
-        self, stack_name: str, config_file: str, running: int, exited: int, total: int
+        self,
+        stack_name: str,
+        config_file: str,
+        running: int,
+        exited: int,
+        total: int,
+        can_recreate: bool = True,
+        has_compose_file: bool = True,
     ):
         """Initialize the stack header.
 
@@ -264,6 +271,8 @@ class StackHeader(Static):
             running: Number of running containers
             exited: Number of exited containers
             total: Total number of containers
+            can_recreate: Whether the stack can be recreated (compose file accessible)
+            has_compose_file: Whether a compose file path is defined
         """
         super().__init__("")
         self.stack_name = stack_name
@@ -272,6 +281,8 @@ class StackHeader(Static):
         self.exited = exited
         self.total = total
         self.config_file = config_file
+        self.can_recreate = can_recreate
+        self.has_compose_file = has_compose_file
         self.can_focus = True
         self._last_click_time = 0
         self._update_content()
@@ -285,11 +296,17 @@ class StackHeader(Static):
             running_text, ", ", exited_text, f", Total: {self.total}"
         )
 
+        # Add indicator if recreate is not available
+        recreate_indicator = ""
+        if not self.can_recreate:
+            recreate_indicator = Text(" [compose file not accessible]", style="red dim")
+
         content = Text.assemble(
             Text(f"{icon} ", style="bold"),
             Text(self.stack_name, style="bold"),
             " ",
             Text(f"({self.config_file})", style="dim"),
+            recreate_indicator,
             "\n",
             status,
         )
@@ -1090,7 +1107,14 @@ class ContainerList(VerticalScroll):
             )
 
     def add_stack(
-        self, name: str, config_file: str, running: int, exited: int, total: int
+        self,
+        name: str,
+        config_file: str,
+        running: int,
+        exited: int,
+        total: int,
+        can_recreate: bool = True,
+        has_compose_file: bool = True,
     ) -> None:
         """Add or update a stack section in the container list.
 
@@ -1100,12 +1124,22 @@ class ContainerList(VerticalScroll):
             running: Number of running containers
             exited: Number of exited containers
             total: Total number of containers
+            can_recreate: Whether the stack can be recreated (compose file accessible)
+            has_compose_file: Whether a compose file path is defined
         """
         # Track that this stack exists in the new data
         self._stacks_in_new_data.add(name)
 
         if name not in self.stack_tables:
-            header = StackHeader(name, config_file, running, exited, total)
+            header = StackHeader(
+                name,
+                config_file,
+                running,
+                exited,
+                total,
+                can_recreate,
+                has_compose_file,
+            )
             table = self.create_stack_table(name)
 
             self.stack_headers[name] = header
@@ -1144,6 +1178,8 @@ class ContainerList(VerticalScroll):
                     "running": running,
                     "exited": exited,
                     "total": total,
+                    "can_recreate": can_recreate,
+                    "has_compose_file": has_compose_file,
                 }
         else:
             header = self.stack_headers[name]
@@ -1152,6 +1188,8 @@ class ContainerList(VerticalScroll):
             header.exited = exited
             header.total = total
             header.config_file = config_file
+            header.can_recreate = can_recreate
+            header.has_compose_file = has_compose_file
             header.expanded = was_expanded
             self.stack_tables[name].styles.display = "block" if was_expanded else "none"
             header._update_content()
@@ -1168,6 +1206,8 @@ class ContainerList(VerticalScroll):
                     "running": running,
                     "exited": exited,
                     "total": total,
+                    "can_recreate": can_recreate,
+                    "has_compose_file": has_compose_file,
                 }
 
     def add_container_to_stack(self, stack_name: str, container_data: dict) -> None:
@@ -1471,6 +1511,8 @@ class ContainerList(VerticalScroll):
                 "running": header.running,
                 "exited": header.exited,
                 "total": header.total,
+                "can_recreate": header.can_recreate,
+                "has_compose_file": header.has_compose_file,
             }
 
             # Update the footer and cursor visibility

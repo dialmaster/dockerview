@@ -362,6 +362,18 @@ class DockerViewApp(App):
                     config_file = self.container_list.selected_stack_data.get(
                         "config_file", ""
                     )
+
+                    # Check if recreate is allowed
+                    if command == "recreate":
+                        can_recreate = self.container_list.selected_stack_data.get(
+                            "can_recreate", True
+                        )
+                        if not can_recreate:
+                            self.error_display.update(
+                                f"Cannot recreate stack '{stack_name}': compose file not accessible"
+                            )
+                            return
+
                     success = self.docker.execute_stack_command(
                         stack_name, config_file, command
                     )
@@ -504,6 +516,8 @@ class DockerViewApp(App):
                         stack_info["running"],
                         stack_info["exited"],
                         stack_info["total"],
+                        stack_info.get("can_recreate", True),
+                        stack_info.get("has_compose_file", True),
                     )
 
                 # Process all containers in a single batch
