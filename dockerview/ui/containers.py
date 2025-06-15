@@ -360,6 +360,22 @@ class ContainerList(VerticalScroll):
         width: 100%;
         height: 3;
     }
+    
+    .stacks-group {
+        layout: vertical;
+        width: 100%;
+        height: auto;
+        margin: 0 0 2 0;
+        background: transparent;
+    }
+    
+    .networks-group {
+        layout: vertical;
+        width: 100%;
+        height: auto;
+        margin: 0;
+        background: transparent;
+    }
 
     .network-container {
         layout: vertical;
@@ -444,9 +460,11 @@ class ContainerList(VerticalScroll):
             self.container_rows = {}  # Dictionary to track container rows by ID
             self.expanded_stacks = set()  # Keep track of which stacks are expanded
 
-            # Section headers
+            # Section headers and containers
             self.networks_section_header = None
             self.stacks_section_header = None
+            self.networks_container = None  # Container for all network widgets
+            self.stacks_container = None  # Container for all stack widgets
 
             # General state
             self.current_focus = None
@@ -496,7 +514,7 @@ class ContainerList(VerticalScroll):
         return table
 
     def _ensure_section_headers(self) -> None:
-        """Ensure section headers exist for stacks and networks."""
+        """Ensure section headers and containers exist for stacks and networks."""
         if self.stacks_section_header is None:
             self.stacks_section_header = SectionHeader("📦 DOCKER COMPOSE STACKS")
             # Remove top margin for the first section header
@@ -504,6 +522,12 @@ class ContainerList(VerticalScroll):
 
         if self.networks_section_header is None:
             self.networks_section_header = SectionHeader("🌐 DOCKER NETWORKS")
+            
+        if self.stacks_container is None:
+            self.stacks_container = Container(classes="stacks-group")
+            
+        if self.networks_container is None:
+            self.networks_container = Container(classes="networks-group")
 
     def create_stack_table(self, stack_name: str) -> DataTable:
         """Create a new DataTable for displaying container information.
@@ -585,20 +609,21 @@ class ContainerList(VerticalScroll):
                 # Remove from expanded networks tracking
                 self.expanded_networks.discard(network_name)
 
-                # Remove actual UI widgets - find and remove the network container
-                for child in list(self.children):
-                    if (
-                        isinstance(child, Container)
-                        and "network-container" in child.classes
-                    ):
-                        # Find the network name by looking at the header
-                        for widget in child.children:
-                            if (
-                                isinstance(widget, NetworkHeader)
-                                and widget.network_name == network_name
-                            ):
-                                child.remove()
-                                break
+                # Remove actual UI widgets - find and remove the network container from networks group
+                if self.networks_container:
+                    for child in list(self.networks_container.children):
+                        if (
+                            isinstance(child, Container)
+                            and "network-container" in child.classes
+                        ):
+                            # Find the network name by looking at the header
+                            for widget in child.children:
+                                if (
+                                    isinstance(widget, NetworkHeader)
+                                    and widget.network_name == network_name
+                                ):
+                                    child.remove()
+                                    break
 
                 # Remove from internal tracking dictionaries
                 if network_name in self.network_headers:
@@ -620,20 +645,21 @@ class ContainerList(VerticalScroll):
                 # Remove from expanded stacks tracking
                 self.expanded_stacks.discard(stack_name)
 
-                # Remove actual UI widgets - find and remove the stack container
-                for child in list(self.children):
-                    if (
-                        isinstance(child, Container)
-                        and "stack-container" in child.classes
-                    ):
-                        # Find the stack name by looking at the header
-                        for widget in child.children:
-                            if (
-                                isinstance(widget, StackHeader)
-                                and widget.stack_name == stack_name
-                            ):
-                                child.remove()
-                                break
+                # Remove actual UI widgets - find and remove the stack container from stacks group
+                if self.stacks_container:
+                    for child in list(self.stacks_container.children):
+                        if (
+                            isinstance(child, Container)
+                            and "stack-container" in child.classes
+                        ):
+                            # Find the stack name by looking at the header
+                            for widget in child.children:
+                                if (
+                                    isinstance(widget, StackHeader)
+                                    and widget.stack_name == stack_name
+                                ):
+                                    child.remove()
+                                    break
 
                 # Remove from internal tracking dictionaries
                 if stack_name in self.stack_headers:
@@ -672,8 +698,8 @@ class ContainerList(VerticalScroll):
             new_stack_containers = {}
 
             # Find all existing containers in the UI
-            if not self._pending_clear:
-                for child in self.children:
+            if not self._pending_clear and self.networks_container:
+                for child in self.networks_container.children:
                     if (
                         isinstance(child, Container)
                         and "network-container" in child.classes
@@ -683,7 +709,10 @@ class ContainerList(VerticalScroll):
                             if isinstance(widget, NetworkHeader):
                                 existing_network_containers[widget.network_name] = child
                                 break
-                    elif (
+                                
+            if not self._pending_clear and self.stacks_container:
+                for child in self.stacks_container.children:
+                    if (
                         isinstance(child, Container)
                         and "stack-container" in child.classes
                     ):
@@ -722,7 +751,7 @@ class ContainerList(VerticalScroll):
                 self.remove_children()
                 self._pending_clear = False
 
-                # Ensure section headers exist
+                # Ensure section headers and containers exist
                 self._ensure_section_headers()
 
                 # Mount all containers at once (stacks first, then networks)
@@ -730,12 +759,13 @@ class ContainerList(VerticalScroll):
                 # Mount stacks section
                 if new_stack_containers or self.stack_headers:
                     self.mount(self.stacks_section_header)
+                    self.mount(self.stacks_container)
                     for stack_name, (
                         stack_container,
                         header,
                         table,
                     ) in new_stack_containers.items():
-                        self.mount(stack_container)
+                        self.stacks_container.mount(stack_container)
                         stack_container.mount(header)
                         stack_container.mount(table)
                         table.styles.display = "block" if header.expanded else "none"
@@ -743,19 +773,17 @@ class ContainerList(VerticalScroll):
                 # Mount networks section
                 if new_network_containers or self.network_headers:
                     self.mount(self.networks_section_header)
+                    self.mount(self.networks_container)
                     for network_name, (
                         network_container,
                         header,
                         table,
                     ) in new_network_containers.items():
-                        self.mount(network_container)
+                        self.networks_container.mount(network_container)
                         network_container.mount(header)
                         network_container.mount(table)
                         table.styles.display = "block" if header.expanded else "none"
 
-                total_containers = len(new_network_containers) + len(
-                    new_stack_containers
-                )
             else:
                 # Update existing containers and add new ones
 
@@ -801,44 +829,50 @@ class ContainerList(VerticalScroll):
                         # This stack no longer exists, remove it
                         container.remove()
 
-                # Ensure section headers exist
+                # Ensure section headers and containers exist
                 self._ensure_section_headers()
 
-                # Check if we need to mount section headers
+                # Check if we need to mount section headers and containers
                 networks_header_exists = self.networks_section_header in self.children
                 stacks_header_exists = self.stacks_section_header in self.children
+                networks_container_exists = self.networks_container in self.children
+                stacks_container_exists = self.stacks_container in self.children
 
-                # Mount section headers if needed
-                if (
-                    new_stack_containers or self.stack_headers
-                ) and not stacks_header_exists:
-                    self.mount(self.stacks_section_header)
+                # Mount stacks section if needed
+                if (new_stack_containers or self.stack_headers):
+                    if not stacks_header_exists:
+                        self.mount(self.stacks_section_header)
+                    if not stacks_container_exists:
+                        self.mount(self.stacks_container)
+                        
+                    # Add new stack containers
+                    for stack_name, (
+                        stack_container,
+                        header,
+                        table,
+                    ) in new_stack_containers.items():
+                        self.stacks_container.mount(stack_container)
+                        stack_container.mount(header)
+                        stack_container.mount(table)
+                        table.styles.display = "block" if header.expanded else "none"
 
-                if (
-                    new_network_containers or self.network_headers
-                ) and not networks_header_exists:
-                    self.mount(self.networks_section_header)
-
-                # Then add any new containers (stacks first, then networks)
-                for stack_name, (
-                    stack_container,
-                    header,
-                    table,
-                ) in new_stack_containers.items():
-                    self.mount(stack_container)
-                    stack_container.mount(header)
-                    stack_container.mount(table)
-                    table.styles.display = "block" if header.expanded else "none"
-
-                for network_name, (
-                    network_container,
-                    header,
-                    table,
-                ) in new_network_containers.items():
-                    self.mount(network_container)
-                    network_container.mount(header)
-                    network_container.mount(table)
-                    table.styles.display = "block" if header.expanded else "none"
+                # Mount networks section if needed
+                if (new_network_containers or self.network_headers):
+                    if not networks_header_exists:
+                        self.mount(self.networks_section_header)
+                    if not networks_container_exists:
+                        self.mount(self.networks_container)
+                        
+                    # Add new network containers
+                    for network_name, (
+                        network_container,
+                        header,
+                        table,
+                    ) in new_network_containers.items():
+                        self.networks_container.mount(network_container)
+                        network_container.mount(header)
+                        network_container.mount(table)
+                        table.styles.display = "block" if header.expanded else "none"
 
             # Restore selection and focus
             self._restore_selection()
@@ -910,6 +944,9 @@ class ContainerList(VerticalScroll):
         self.expanded_stacks = {
             name for name, header in self.stack_headers.items() if header.expanded
         }
+        self.expanded_networks = {
+            name for name, header in self.network_headers.items() if header.expanded
+        }
         # Also save focused widget if any
         focused = self.screen.focused if self.screen else None
         if focused in self.stack_headers.values():
@@ -920,11 +957,22 @@ class ContainerList(VerticalScroll):
             self.current_focus = next(
                 name for name, table in self.stack_tables.items() if table == focused
             )
+        elif focused in self.network_headers.values():
+            self.current_focus = next(
+                name for name, header in self.network_headers.items() if header == focused
+            )
+        elif focused in self.network_tables.values():
+            self.current_focus = next(
+                name for name, table in self.network_tables.items() if table == focused
+            )
 
         # Clear all widgets
         self.stack_tables.clear()
         self.stack_headers.clear()
+        self.network_tables.clear()
+        self.network_headers.clear()
         self.container_rows.clear()  # Clear container row tracking
+        self.network_rows.clear()  # Clear network row tracking
         self.remove_children()
 
     def add_network(self, network_data: dict) -> None:
@@ -958,8 +1006,16 @@ class ContainerList(VerticalScroll):
 
             # Create and mount the container immediately unless we're in a batch update
             if not self._is_updating:
+                self._ensure_section_headers()
+                
+                # Ensure networks section exists
+                if self.networks_section_header not in self.children:
+                    self.mount(self.networks_section_header)
+                if self.networks_container not in self.children:
+                    self.mount(self.networks_container)
+                    
                 network_container = Container(classes="network-container")
-                self.mount(network_container)
+                self.networks_container.mount(network_container)
                 network_container.mount(header)
                 network_container.mount(table)
                 # Ensure proper display state
@@ -1059,8 +1115,16 @@ class ContainerList(VerticalScroll):
 
             # Create and mount the container immediately unless we're in a batch update
             if not self._is_updating:
+                self._ensure_section_headers()
+                
+                # Ensure stacks section exists
+                if self.stacks_section_header not in self.children:
+                    self.mount(self.stacks_section_header)
+                if self.stacks_container not in self.children:
+                    self.mount(self.stacks_container)
+                    
                 stack_container = Container(classes="stack-container")
-                self.mount(stack_container)
+                self.stacks_container.mount(stack_container)
                 stack_container.mount(header)
                 stack_container.mount(table)
                 # Ensure proper display state
@@ -1203,7 +1267,7 @@ class ContainerList(VerticalScroll):
         if self._is_updating and self._pending_clear:
             try:
 
-                # Ensure section headers exist
+                # Ensure section headers and containers exist
                 self._ensure_section_headers()
 
                 # Prepare all containers
@@ -1228,12 +1292,13 @@ class ContainerList(VerticalScroll):
                 # Mount stacks section
                 if stack_containers:
                     self.mount(self.stacks_section_header)
+                    self.mount(self.stacks_container)
                     for stack_name, (
                         container,
                         header,
                         table,
                     ) in stack_containers.items():
-                        self.mount(container)
+                        self.stacks_container.mount(container)
                         container.mount(header)
                         container.mount(table)
                         table.styles.display = "block" if header.expanded else "none"
@@ -1241,12 +1306,13 @@ class ContainerList(VerticalScroll):
                 # Mount networks section
                 if network_containers:
                     self.mount(self.networks_section_header)
+                    self.mount(self.networks_container)
                     for network_name, (
                         container,
                         header,
                         table,
                     ) in network_containers.items():
-                        self.mount(container)
+                        self.networks_container.mount(container)
                         container.mount(header)
                         container.mount(table)
                         table.styles.display = "block" if header.expanded else "none"
