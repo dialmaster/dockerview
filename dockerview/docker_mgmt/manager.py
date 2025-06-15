@@ -94,69 +94,119 @@ class DockerManager:
                 - memory_percent: Memory usage percentage
                 - pids: Number of processes
 
-        PERFORMANCE NOTE: This method uses 'docker stats --no-stream' to get stats for all containers
-        in a single CLI call, which is MUCH faster than making individual API calls per container.
-        The previous individual container.stats() calls would make one request per container,
-        leading to poor performance with many containers. This batch approach reduces the overhead
-        significantly, especially in environments with many containers.
+        PERFORMANCE NOTE: This method uses the Docker SDK with concurrent stats collection
+        to efficiently retrieve stats for all containers. We use threading to parallelize
+        the stats collection while maintaining good performance with many containers.
         """
         stats_dict = {}
         try:
-            logger.debug("Starting docker stats subprocess call")
-            subprocess_start = time.time()
+            logger.debug("Starting Docker SDK stats collection")
+            collection_start = time.time()
 
-            stats_output = subprocess.check_output(
-                [
-                    "docker",
-                    "stats",
-                    "--no-stream",
-                    "--format",
-                    "{{.ID}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.MemPerc}}\t{{.PIDs}}",
-                ],
-                universal_newlines=True,
-                stderr=subprocess.PIPE,
-            )
+            # Get all running containers
+            containers = self.client.containers.list(filters={"status": "running"})
+            logger.debug(f"Found {len(containers)} running containers")
 
-            subprocess_end = time.time()
-            logger.debug(
-                f"Docker stats subprocess call completed in {subprocess_end - subprocess_start:.3f}s"
-            )
+            if not containers:
+                return {}
 
-            parsing_start = time.time()
-            container_count = 0
+            # Use threading to collect stats concurrently
+            stats_lock = threading.Lock()
+            threads = []
 
-            for line in stats_output.strip().split("\n"):
-                if not line:
-                    continue
+            def collect_container_stats(container):
+                """Collect stats for a single container."""
                 try:
-                    container_count += 1
-                    cid, cpu, mem_usage, mem_perc, pids = line.split("\t")
-                    short_id = cid[:12]
+                    # Get stats without streaming (single snapshot)
+                    stats = container.stats(stream=False)
 
-                    stats_dict[short_id] = {
-                        "cpu": cpu,
-                        "memory": mem_usage,
-                        "memory_percent": mem_perc.rstrip("%"),
-                        "pids": pids,
-                    }
-                except ValueError as e:
-                    logger.error(
-                        f"Error parsing stats line '{line}': wrong number of fields: {str(e)}",
-                        exc_info=True,
+                    # Calculate CPU percentage
+                    cpu_delta = (
+                        stats["cpu_stats"]["cpu_usage"]["total_usage"]
+                        - stats["precpu_stats"]["cpu_usage"]["total_usage"]
                     )
-                    continue
+                    system_delta = (
+                        stats["cpu_stats"]["system_cpu_usage"]
+                        - stats["precpu_stats"]["system_cpu_usage"]
+                    )
+                    cpu_count = len(
+                        stats["cpu_stats"]["cpu_usage"].get("percpu_usage", [None])
+                    )
+
+                    if system_delta > 0:
+                        cpu_percent = (cpu_delta / system_delta) * cpu_count * 100.0
+                    else:
+                        cpu_percent = 0.0
+
+                    # Calculate memory usage
+                    mem_stats = stats["memory_stats"]
+                    mem_usage = mem_stats.get("usage", 0)
+                    mem_limit = mem_stats.get("limit", 0)
+
+                    # Account for cache in memory usage (same as docker stats CLI)
+                    cache = mem_stats.get("stats", {}).get("cache", 0)
+                    mem_usage = mem_usage - cache if mem_usage > cache else mem_usage
+
+                    mem_percent = (
+                        (mem_usage / mem_limit * 100.0) if mem_limit > 0 else 0.0
+                    )
+
+                    # Format memory strings
+                    def format_bytes(bytes_val):
+                        """Format bytes to human readable format."""
+                        for unit in ["B", "KiB", "MiB", "GiB", "TiB"]:
+                            if bytes_val < 1024.0:
+                                return f"{bytes_val:.1f}{unit}"
+                            bytes_val /= 1024.0
+                        return f"{bytes_val:.1f}PiB"
+
+                    mem_usage_str = format_bytes(mem_usage)
+                    mem_limit_str = format_bytes(mem_limit)
+
+                    # Get PIDs count
+                    pids_stats = stats.get("pids_stats", {})
+                    pids_current = pids_stats.get("current", 0)
+
+                    # Store the stats
+                    with stats_lock:
+                        stats_dict[container.short_id] = {
+                            "cpu": f"{cpu_percent:.2f}%",
+                            "memory": f"{mem_usage_str} / {mem_limit_str}",
+                            "memory_percent": f"{mem_percent:.2f}",
+                            "pids": str(pids_current),
+                        }
+
                 except Exception as e:
                     logger.error(
-                        f"Error parsing stats line '{line}': {str(e)}", exc_info=True
+                        f"Error collecting stats for container {container.short_id}: {str(e)}",
+                        exc_info=True,
                     )
-                    continue
+                    # Provide default values on error
+                    with stats_lock:
+                        stats_dict[container.short_id] = {
+                            "cpu": "0%",
+                            "memory": "0B / 0B",
+                            "memory_percent": "0",
+                            "pids": "0",
+                        }
 
-            parsing_end = time.time()
+            # Create and start threads for each container
+            for container in containers:
+                thread = threading.Thread(
+                    target=collect_container_stats, args=(container,)
+                )
+                thread.daemon = True
+                threads.append(thread)
+                thread.start()
+
+            # Wait for all threads to complete with a timeout
+            timeout = 5.0  # 5 second timeout for stats collection
+            for thread in threads:
+                thread.join(timeout=timeout)
+
+            collection_end = time.time()
             logger.debug(
-                f"Parsed stats for {container_count} containers in {parsing_end - parsing_start:.3f}s"
-            )
-            logger.debug(
-                f"Total get_all_container_stats time: {parsing_end - subprocess_start:.3f}s"
+                f"Collected stats for {len(stats_dict)} containers in {collection_end - collection_start:.3f}s"
             )
 
         except Exception as e:
