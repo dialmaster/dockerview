@@ -1,6 +1,7 @@
 import json
 import logging
 import subprocess
+import threading
 import time
 from collections import defaultdict
 from typing import Dict, List, Optional
@@ -292,16 +293,34 @@ class DockerManager:
                 logger.info(f"Executing recreate command: {' '.join(cmd)}")
             else:
                 logger.info(
-                    f"Executing container command: docker {command} {container_id}"
+                    f"Executing container command: {command} on container {container_id}"
                 )
-                cmd = ["docker", command, container_id]
 
-            # Use Popen to run the command in the background
-            process = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-            )
+                def run_container_command():
+                    try:
+                        container = self.client.containers.get(container_id)
 
-            # We don't wait for the process to complete to keep the UI responsive
+                        if command == "start":
+                            container.start()
+                        elif command == "stop":
+                            container.stop()
+                        elif command == "restart":
+                            container.restart()
+                        else:
+                            error_msg = f"Unknown container command: {command}"
+                            logger.error(error_msg)
+                            self.last_error = error_msg
+                    except Exception as e:
+                        logger.error(
+                            f"Error in container command thread: {str(e)}",
+                            exc_info=True,
+                        )
+
+                # Run the command in a separate thread to avoid blocking
+                thread = threading.Thread(target=run_container_command)
+                thread.daemon = True
+                thread.start()
+
             return True
         except Exception as e:
             error_msg = f"Error executing container command: {str(e)}"
