@@ -18,8 +18,9 @@ dockerview is a modern terminal user interface (TUI) for real-time monitoring an
 
 - Python 3.8 or higher
 - Docker Engine installed and running
-- Docker Compose
+- Docker Compose v2 (the `docker compose` command)
 - Unix-like terminal (Linux, macOS, or WSL2 on Windows)
+- No Docker CLI required - dockerview uses the Docker SDK directly
 
 **Important:** dockerview must be run on the same filesystem where your Docker Compose files are located. It cannot currently monitor remote Docker instances.
 
@@ -209,13 +210,15 @@ dockerview is built using Python with the following core components:
    - Interactive controls for log filtering and auto-follow
    - Modal dialogs for actions and confirmations
 
-2. **Docker Integration Layer** (docker-py)
-   - Real-time container statistics collection
+2. **Docker Integration Layer** (docker-py SDK)
+   - Direct SDK integration without Docker CLI dependency
+   - Real-time container statistics collection using concurrent threading
    - Docker Compose stack detection and grouping
    - Container port mapping display
-   - Container and stack command execution (start/stop/restart/recreate)
-   - Real-time log streaming for containers and stacks
+   - Non-blocking container and stack operations (start/stop/restart/recreate)
+   - Real-time log streaming with configurable time ranges and tail limits
    - Event monitoring for container state changes
+   - Thread-safe concurrent operations for improved performance
 
 3. **State Management**
    - Container and stack state tracking
@@ -224,16 +227,23 @@ dockerview is built using Python with the following core components:
 
 ### Data Flow
 
-Docker Engine <-> Docker SDK <-> DockerManager <-> UI Components
+Docker Engine <-> docker-py SDK <-> DockerManager (with threading) <-> UI Components
 
 ### Key Components
 
 - **DockerViewApp**: Main Textual application class with keyboard bindings for container management
-- **ContainerList**: Navigable list of containers with real-time stats, grouped by stacks
+- **ContainerList**: Navigable list of containers with real-time stats, now with separate sections for Docker networks and Compose stacks
 - **StackHeader**: Collapsible headers for Docker Compose stacks
+- **NetworkHeader**: Separate section headers for Docker networks
 - **StatusBar**: Displays detailed information about the selected container or stack
-- **DockerManager**: Handles Docker SDK integration, container/stack data retrieval, and command execution
-- **LogPane**: Split-pane view for real-time container/stack log streaming with filtering
+- **DockerManager**: Handles direct Docker SDK integration with concurrent operations:
+  - Thread-based non-blocking container operations
+  - Parallel stats collection for all containers
+  - Multi-stream log aggregation for stacks
+- **LogPane**: Split-pane view with enhanced log streaming:
+  - Real-time filtering with proper empty filter handling
+  - Session-based log streaming to prevent duplicates
+  - Configurable time ranges and tail limits
 - **StateManager**: Dedicated state management component
 
 ## Development
