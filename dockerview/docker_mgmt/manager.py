@@ -643,6 +643,41 @@ class DockerManager:
 
                 # We don't wait for the process to complete to keep the UI responsive
                 return True
+
+            # For down command, use docker compose down
+            elif command.startswith("down"):
+                # Extract remove_volumes flag if passed as part of command
+                remove_volumes = False
+                if ":" in command:
+                    base_command, flags = command.split(":", 1)
+                    remove_volumes = "remove_volumes" in flags
+                    logger.info(
+                        f"Down command with flags: remove_volumes={remove_volumes}"
+                    )
+
+                cmd = ["docker", "compose", "-p", stack_name]
+
+                # Add config file(s) if provided and not 'N/A'
+                if config_file and config_file != "N/A":
+                    # Config files are comma-separated
+                    for cf in config_file.split(","):
+                        cmd.extend(["-f", cf.strip()])
+
+                cmd.append("down")
+
+                # Add volumes flag if requested
+                if remove_volumes:
+                    cmd.append("--volumes")
+
+                logger.info(f"Executing stack down command: {' '.join(cmd)}")
+
+                # Use Popen to run the command in the background
+                process = subprocess.Popen(
+                    cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+                )
+
+                # We don't wait for the process to complete to keep the UI responsive
+                return True
             else:
                 error_msg = f"Unknown stack command: {command}"
                 logger.error(error_msg)
